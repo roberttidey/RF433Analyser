@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<!--Import Google Icon Font-->
+		<link href="http://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+		<!--Import materialize.css-->
+		<link rel="stylesheet" href="http://cdnjs.cloudflare.com/ajax/libs/materialize/0.98.0/css/materialize.min.css" media="screen,projection" />
+
+		<!--Let browser know website is optimized for mobile-->
+		<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no"/>
+		<meta charset="utf-8"/>
+		<title>RF433 Analyser</title>
+	</head>
+
+	<body>
+		<header>
+			<div class="awTitle">RF433 Analyser</div>
+		</header>
+		<div class="container" id="events">
+			<div class = "row">
+				<div class = "col s12">
+					<ul class = "tabs">
+						<li class = "tab col s4"><a class = "active" href = "#capture">Capture</a></li>
+						<li class = "tab col s4"><a href = "#status">Status</a></li>
+						<li class = "tab col s4 "><a href = "#config">Config</a></li>
+					</ul>
+				</div>
+         
+				<div id = "capture" class = "tab col s12">
+					<div id = "captureTable" class = "tab col s12"></div>
+					<div>
+						Capture Filename&nbsp&nbsp<input id="filename" style="width:200px;height:24px">
+					</div>
+					<a class="btn green" id="captureRSSI" style="width:200px;height:24px">Capture RSSI</a>&nbsp&nbsp
+					<a class="btn green" id="captureDATA" style="width:200px;height:24px">Capture DATA</a> 
+				</div>
+				<div id = "status" class = "tab col s12"></div>
+				<div id = "config" class = "tab col s12">
+					<div id = "configTable" class = "tab col s12"></div>
+					<a class="btn green" id="saveconfig" style="width:80px;height:24px">Save</a
+				</div>
+			</div> 
+		</div>
+		<style type="text/css">
+			.btn_grid {
+				margin: 3px 0;
+			}
+			.btn {
+				height: 28px;
+				line-height: 28px;
+			}
+			.awTitle {
+				display:inline-block;
+				font-size: x-large;
+				padding-left:20px;
+				width:200px;
+			}
+			header {
+				position:absolute;
+				top:0px;
+				left:0px;
+				height:32px;
+				right:0px;
+				overflow:hidden;
+				background:red;
+				color:white;
+			}
+			td {
+				height:20px;
+				width:200px;
+				padding:0px;
+			}
+			.container {
+				position:absolute;
+				top:32px;
+				bottom:0px;
+				left:10px;
+				right:60px;
+				overflow-y:auto;
+				overflow-x:hidden;
+			}
+			.tab {
+				overflow-x:hidden;
+			}
+		</style>
+	
+		<!--Import jQuery before materialize.js-->
+		<script type="text/javascript" src="http://code.jquery.com/jquery-2.1.1.min.js"></script>
+		<script src="http://cdnjs.cloudflare.com/ajax/libs/materialize/0.98.0/js/materialize.min.js"></script>
+		<script type="text/javascript">(function($){
+$(function(){
+	var host = window.location.hostname;
+	var configTitles = 'Parameter,Value';
+	var captureTitles = 'Filename,Download,Delete';
+	var statusTitles = 'Parameter,Value';
+	var captureFileCount = -1;
+	var lastStatus = '';
+	
+	// ******************************************************************
+	// init()
+	// ******************************************************************
+	function init() {
+		loadConfigTable();
+		loadStatus();
+	}
+		
+	function loadCaptures() {
+		// Load Captures
+		$.get("http://" + host + "/getcapturefiles", function(data) {
+			var captureTable_html = '<table id="captureFiles"><thead><tr>';
+			var i;
+			var captureFields = [];
+			captureFields = captureTitles.split(",");
+			for(i=0; i< captureFields.length; i++) captureTable_html += '<th>' + captureFields[i] + '</th>';
+			captureTable_html += '</thead></tr><tbody>';
+			if(data.length) {
+				captureFields = data.split("<BR>");
+				for(i=0; i < captureFields.length; i++) {
+					if(captureFields[i] != "") {
+						captureTable_html += '<tr><td><a href="http://' + host + '/' + captureFields[i] + '">' + captureFields[i] + '</a></td>';
+						captureTable_html += '<td><a href="http://' + host + '/' + captureFields[i] + '" class="btn green" download style="width:10px;height:10px"></a></td>';
+						captureTable_html += '<td><a name="' + captureFields[i] + '" class="btn red" id="delete" style="width:10px;height:10px"></a></td></tr>';
+					}
+				}
+			}
+			captureTable_html += '</table>';
+			$('#captureTable').html(captureTable_html);
+		});
+	}
+	
+	function loadConfigTable() {
+		// Load config
+		$.get("http://" + host + "/loadconfig", function(data) {
+			var lines = data.split("<BR>");
+			var configTable_html = '<table id="configValues"><thead><tr>';
+			var i;
+			var configFields = [];
+			configFields = configTitles.split(",");
+			for(i=0; i < configFields.length; i++) configTable_html += '<th>' + configFields[i] + '</th>';
+			configTable_html += '</thead></tr><tbody>';
+
+			cCount = 0;
+			$.each(lines, function(n, urlRecord) {
+				if(urlRecord.length > 0 && urlRecord.charAt(0) != '#') {
+					configFields = urlRecord.split(':');
+					configTable_html += '<tr>'; 
+					configTable_html += '<td><input readonly id="cName_' + cCount + '" style="width:200px;height:16px" value="' + configFields[0] + '" type="text"></td>'; 
+					configTable_html += '<td><input id="cValue_' + cCount + '" style="width:200px;height:16px" value="' + configFields[1] + '" type="text"></td>'; 
+					configTable_html += '</tr>';
+					cCount++;
+				}
+			});
+			configTable_html += '</table>';
+			$('#configTable').html(configTable_html);
+		});
+	}
+
+	function loadStatus() {
+		$.get("http://" + host + "/status",  function(data) {
+			if(data != lastStatus) {
+				lastStatus = data;
+				var lines = data.split("<BR>");
+				var status_html = '<table><thead><tr>';
+				var i;
+				var statusFields = [];
+				var key;
+				var measureEl;
+				
+				statusFields = statusTitles.split(",");
+				for(i=0; i< statusFields.length; i++) status_html += '<th>' + statusFields[i] + '</th>';
+				status_html += '</thead></tr><tbody>';
+
+				$.each(lines, function(n, urlRecord) {
+					if(urlRecord.length > 0 && urlRecord.charAt(0) != '#') {
+						statusFields = urlRecord.split(':');
+						key = statusFields[0];
+						if(statusFields[1] != '') {
+							status_html += '<tr>'; 
+							status_html += '<td>' + key + '</td>';
+							status_html += '<td>' + statusFields[1] + '</td>'; 
+							status_html += '</tr>';
+						}
+						if(key == 'captureFileCount') {
+							if(statusFields[1] != captureFileCount) {
+								captureFileCount = statusFields[1];
+								loadCaptures();
+							}
+						}
+					}
+				});
+				status_html += '</table>';
+				$('#status').html(status_html);
+			}
+		});
+	}
+	
+	// ******************************************************************
+	// Actions
+	// ******************************************************************	
+	$("#config").on("click", "#saveconfig", function() {
+		var config;
+		var btn = $(this);
+		saveConfig(config);
+	});
+	
+	function saveConfig(config) {
+		var config = '#';
+		var i;
+		for (var r = 0; r < cCount; r++) {
+            config += document.getElementById('cName_' + r).value + ',';
+        }
+		config += '<BR>';
+		for (var r = 0; r < cCount; r++) {
+            config += document.getElementById('cValue_' + r).value + '<BR>';
+        }
+		$.get("http://" + host + "/saveconfig", {'config':config} );
+	}
+	
+	$("#capture").on("click", "#delete", function() {
+		var btn = $(this);
+		var path;
+		path = "http://" + host + "/edit?n=/" + btn["0"].name;
+		$.ajax({
+			url: path,
+			type: 'DELETE',
+			success: function(result) {}
+		});
+		captureFileCount = -1;
+	});
+
+	$("#capture").on("click", "#captureRSSI", function() {
+		var btn = $(this);
+		capture(1);
+	});
+	
+	$("#capture").on("click", "#captureDATA", function() {
+		var btn = $(this);
+		capture(2);
+	});
+	
+	function capture(type) {
+		var filename = document.getElementById('filename').value;
+		var i = filename.indexOf('-cap.txt');
+		if(filename.length && (i < 0 || i != (filename.length - 8))) filename += '-cap.txt';
+		$.get("http://" + host + "/capture", {'filename':filename,capturetype:type} );
+	}
+	
+	function refresh(updateRate) {
+	   setInterval(function(){ loadStatus(); }, updateRate);
+	}
+	
+	// ******************************************************************
+	// main
+	// ******************************************************************
+	init();
+	refresh(1000);
+	
+}); // end of document ready
+})(jQuery); // end of jQuery name space</script>
+	</body>
+</html>

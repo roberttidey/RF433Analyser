@@ -1,0 +1,18 @@
+#Config file for caliper
+# lines are host;idleTimeout;main loop delay;calString;buttonShort;buttonMedium;buttonLong;
+# displayInterval;rssiPrefix;dataPrefix,captureOn,captureDataDuration,captureTransitions,captureRSSIDuration,captureRSSIInterval
+esp433
+300000
+10
+873,790,50,0
+100
+2000
+4000
+500
+rssi
+data
+-90.00
+2500
+512
+10000
+200
