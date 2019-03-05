@@ -4,7 +4,7 @@ Instrument to monitor RF 433MHz signal strength and simplify data capture
 
 Uses a RX6 433MHz receiver (modified)
 
-Construction details to be posted at https://www.instructables.com/id/RF433MHzAnalyser
+Construction details at https://www.instructables.com/id/RF433MHzAnalyser
 
 ## Features
 - Monitors signal strength of 433MHz transmissions
