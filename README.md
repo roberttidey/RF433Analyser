@@ -48,5 +48,5 @@ The firmware supports the following http calls
 - /firmware - initiate update of firmware
 
 
-
+A label file is included here. This is designed to be printed on a 10 x 15cm glossy card but can be resized for other paper.
 
