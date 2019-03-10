@@ -84,6 +84,9 @@ String dataPrefix = "data";
 String captureFile;
 File fsUploadFile;
 String adcCalString = "873,790,50,0";
+//cubic rssi fit c,x,x2,x3
+String rssiCalString = "-13431,623050,3905430,1325";
+int rssiCal[4];
 int rssi;
 int adcOffset;
 int adcSlope;
@@ -122,7 +125,7 @@ int captureState;
 int captureFileCount = 0;
 
 String configNames[] = {"host","idleTimeout","timeInterval","adcCalString","buttonShort","buttonMedium","buttonLong",
-						"displayInterval","rssiPrefix","dataPrefix","captureOn","captureDataDuration","captureTransitions","captureRSSIDuration","captureRSSIInterval"};
+						"displayInterval","rssiPrefix","dataPrefix","captureOn","captureDataDuration","captureTransitions","captureRSSIDuration","captureRSSIInterval","rssiCalString"};
 
 #define AP_AUTHID "2718"
 //For update service
@@ -206,7 +209,7 @@ void unusedIO() {
 }
 
 
-void calibrateADC() {
+void calibrate() {
 	int v[4]; //mV2,adc2,mV1,adc1
 	int j,k;
 	String temp = adcCalString + ",1,2,3,4";
@@ -220,7 +223,13 @@ void calibrateADC() {
 	
 	adcSlope = (1000 * (v[0] - v[2])) / (v[1] - v[3]);
 	adcOffset = 1000 * v[2] - adcSlope * v[3];
-	Serial.println("cal:" + String(adcSlope) + ":" + String(adcOffset));
+	temp = rssiCalString + ",1,2,3,4";
+	j=0;
+	for(k=0; k<4; k++) {
+		j = temp.indexOf(',');
+		rssiCal[k] = temp.substring(0,j).toInt();
+		temp = temp.substring(j+1);
+	}
 }
 
 /*
@@ -252,7 +261,8 @@ String getConfig() {
 					case 11: captureDataDuration = line.toInt();break;
 					case 12: captureTransitions = line.toInt();break;
 					case 13: captureRSSIDuration = line.toInt();break;
-					case 14: captureRSSIInterval = line.toInt();
+					case 14: captureRSSIInterval = line.toInt();break;
+					case 15: rssiCalString = line;
 						Serial.println(F("Config loaded from file OK"));
 						break;
 				}
@@ -281,10 +291,11 @@ String getConfig() {
 		Serial.print(F("captureTransitions:"));Serial.println(captureTransitions);
 		Serial.print(F("captureRSSIDuration:"));Serial.println(captureRSSIDuration);
 		Serial.print(F("captureRSSIInterval:"));Serial.println(captureRSSIInterval);
+		Serial.print(F("rssiCalString:"));Serial.println(rssiCalString);
 	} else {
 		Serial.println(String(CONFIG_FILE) + " not found. Use default encoder");
 	}
-	calibrateADC();
+	calibrate();
 	idleTimer = elapsedTime;
 	return strConfig;
 }
@@ -620,7 +631,7 @@ void checkButton() {
 
 void calcRssi() {
 	int mv = 2 * adcValue;
-	rssi = -13431 + ((623050 - ((3905430 - mv * 1325)/10000) * mv) * mv) / 100000;
+	rssi = rssiCal[0] + ((rssiCal[1] - ((rssiCal[2] - mv * rssiCal[3])/10000) * mv) * mv) / 100000;
 }
 
 void updateDisplay(String line1, String line2, String line3) {
