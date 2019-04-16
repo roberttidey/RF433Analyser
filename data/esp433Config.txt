@@ -1,6 +1,6 @@
 #Config file for caliper
-# lines are host;idleTimeout;main loop delay;adcCalString;buttonShort;buttonMedium;buttonLong;
-# displayInterval;rssiPrefix;dataPrefix,captureOn,captureDataDuration,captureTransitions,captureRSSIDuration,captureRSSIInterval,rssiCalString
+# lines are host;idleTimeout;main loop delay;adcCalString;buttonShort;buttonMedium;buttonLong;displayInterval;rssiPrefix;
+# dataPrefix;captureOn;captureDataDuration;captureTransitions;captureRSSIDuration;captureRSSIInterval;rssiCalString;pulseWidthsString
 esp433
 0
 10
@@ -17,3 +17,4 @@ data
 10000
 200
 -13431,623050,3905430,1325
+50,500,2000,12000

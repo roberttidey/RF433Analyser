@@ -7,6 +7,9 @@
 */
 
 #define ESP8266
+#define FONT_SELECT
+#define INC_FONT_ArialMT_Plain_16
+
 #include <ESP8266WiFi.h>
 #include <ESP8266WebServer.h>
 #include "SSD1306Spi.h"
@@ -34,14 +37,18 @@ int unusedPins[11] = {0,1,-1,-1,-1,-1,-1,-1,-1,-1,-1};
 #define AP_GATEWAY 192,168,0,1
 #define AP_SUBNET 255,255,255,0
 
+// if set to 1 allows disconnect request to remove wifi credentials
+#define ALLOW_DISCONNECT 0
+
 #define CONFIG_FILE "/esp433Config.txt"
 
 /*
 Wifi Manager Web set up
 If WM_NAME defined then use WebManager
 */
-#define WM_NAME "voltSetup"
+#define WM_NAME "rfAnalyser"
 #define WM_PASSWORD "password"
+#define WM_TIMEOUT 120
 #ifdef WM_NAME
 	WiFiManager wifiManager;
 #endif
@@ -94,7 +101,7 @@ int adcValue;
 int adcRaw;
 
 #define STARTUP_DELAY 3000
-#define MAX_CAPTURELENGTH 2000
+#define MAX_CAPTURELENGTH 8000
 #define MAX_CAPTURETIME 10000
 #define CAPTURESTATE_STARTUP 0
 #define CAPTURESTATE_IDLE 1
@@ -109,15 +116,18 @@ int adcRaw;
 #define CAPTURETYPE_RSSI 1
 #define CAPTURETYPE_DATA 2
 #define CAPTURE_EXT "-cap.txt"
+#define MAX_PULSEWIDTHS 8
 
 int captureOn;
 int captureTransitions = 512;
-int captureBuffer[MAX_CAPTURELENGTH];
+short captureBuffer[MAX_CAPTURELENGTH];
 int volatile captureCounter;
 int captureRecord;
 unsigned long dataTime;
 unsigned long captureStartTime;
 unsigned long captureTime;
+String pulseWidthsString;
+int pulseWidths[MAX_PULSEWIDTHS];
 int captureDataDuration;
 int captureRSSIDuration;
 int captureRSSIInterval;
@@ -125,7 +135,7 @@ int captureState;
 int captureFileCount = 0;
 
 String configNames[] = {"host","idleTimeout","timeInterval","adcCalString","buttonShort","buttonMedium","buttonLong",
-						"displayInterval","rssiPrefix","dataPrefix","captureOn","captureDataDuration","captureTransitions","captureRSSIDuration","captureRSSIInterval","rssiCalString"};
+						"displayInterval","rssiPrefix","dataPrefix","captureOn","captureDataDuration","captureTransitions","captureRSSIDuration","captureRSSIInterval","rssiCalString","pulseWidths"};
 
 #define AP_AUTHID "2718"
 //For update service
@@ -136,7 +146,8 @@ const char* update_password = "password";
 
 ESP8266WebServer server(AP_PORT);
 ESP8266HTTPUpdateServer httpUpdater;
-SSD1306Spi display(16, 2, 15);
+//define cs as pin 17 so it is unused.
+SSD1306Spi display(16, 2, 17);
 
 
 /*
@@ -157,13 +168,28 @@ void ICACHE_RAM_ATTR buttonInterrupt() {
 
 /*
   Data interrupt handler
+  To encode into a short
+  1 uSec basic resolution
+  Divide by 32 for pulses longer than 16.4mSec
+  Bit 15 signals high pulse
+  Bit 14 indicates divided by 32
+  0 indicates pulse longer than 524mSec
 */
 void ICACHE_RAM_ATTR dataInterrupt() {
 	unsigned long t = micros();
 	if(captureState == CAPTURESTATE_DATAACTIVE) {
 		if(captureCounter < captureTransitions) {
-			//use positive value for low pulse and negative for high
-			captureBuffer[captureCounter] = digitalRead(GPIO_DATA) ? t - dataTime : dataTime - t;
+			int diff = (t - dataTime);
+			short v;
+			if(diff > 524287)
+				v = 0;
+			else if(diff>16383)
+				v = 16384 + (diff >> 5);
+			else
+				v = diff;
+			//Set Bit 15 to flag end of high pulse
+			if(digitalRead(GPIO_DATA) == 0) v = v | 0x8000;
+			captureBuffer[captureCounter] = v;
 			captureCounter++;
 		}
 		dataTime = t;
@@ -220,14 +246,25 @@ void calibrate() {
 		v[k] = temp.substring(0,j).toInt();
 		temp = temp.substring(j+1);
 	}
-	
 	adcSlope = (1000 * (v[0] - v[2])) / (v[1] - v[3]);
 	adcOffset = 1000 * v[2] - adcSlope * v[3];
+
 	temp = rssiCalString + ",1,2,3,4";
 	j=0;
 	for(k=0; k<4; k++) {
 		j = temp.indexOf(',');
 		rssiCal[k] = temp.substring(0,j).toInt();
+		temp = temp.substring(j+1);
+	}
+}
+
+void initPulseWidths() {
+	int j,k;
+	String temp = pulseWidthsString + ",0,0,0,0,0,0,0,500000";
+	j=0;
+	for(k=0; k<MAX_PULSEWIDTHS; k++) {
+		j = temp.indexOf(',');
+		pulseWidths[k] = temp.substring(0,j).toInt();
 		temp = temp.substring(j+1);
 	}
 }
@@ -262,7 +299,8 @@ String getConfig() {
 					case 12: captureTransitions = line.toInt();break;
 					case 13: captureRSSIDuration = line.toInt();break;
 					case 14: captureRSSIInterval = line.toInt();break;
-					case 15: rssiCalString = line;
+					case 15: rssiCalString = line;break;
+					case 16: pulseWidthsString = line;
 						Serial.println(F("Config loaded from file OK"));
 						break;
 				}
@@ -292,14 +330,19 @@ String getConfig() {
 		Serial.print(F("captureRSSIDuration:"));Serial.println(captureRSSIDuration);
 		Serial.print(F("captureRSSIInterval:"));Serial.println(captureRSSIInterval);
 		Serial.print(F("rssiCalString:"));Serial.println(rssiCalString);
+		Serial.print(F("pulseWidthsString:"));Serial.println(pulseWidthsString);
 	} else {
 		Serial.println(String(CONFIG_FILE) + " not found. Use default encoder");
 	}
+	initPulseWidths();
 	calibrate();
 	idleTimer = elapsedTime;
 	return strConfig;
 }
 
+void configModeCallback (WiFiManager *myWiFiManager) {
+	updateDisplay("Wifi config 120s",WiFi.softAPIP().toString(),String(myWiFiManager->getConfigPortalSSID()));
+}
 
 /*
   Connect to local wifi with retries
@@ -321,10 +364,11 @@ int wifiConnect(int check) {
 	wifiCheckTime = elapsedTime;
 #ifdef WM_NAME
 	Serial.println(F("Set up managed Web"));
-	wifiManager.setConfigPortalTimeout(180);
+	wifiManager.setConfigPortalTimeout(WM_TIMEOUT);
 	#ifdef AP_IP
 		wifiManager.setSTAStaticIPConfig(IPAddress(AP_IP), IPAddress(AP_GATEWAY), IPAddress(AP_SUBNET));
 	#endif
+	wifiManager.setAPCallback(configModeCallback);
 	wifiManager.autoConnect(WM_NAME, WM_PASSWORD);
 	WiFi.mode(WIFI_STA);
 #else
@@ -540,9 +584,20 @@ void setCaptureFile(String filePrefix) {
 	captureFile = filePrefix + CAPTURE_EXT;
 }
 
+int getPulseWidth(int width) {
+	int i;
+	for(i=0;i < MAX_PULSEWIDTHS; i++) {
+		if(width < pulseWidths[i]) {
+			break;
+		}
+	}
+	return i;
+}
+
 void saveCapture(int type) {
 	File f;
 	int i = 0;
+	int v;
 	unsigned long m = millis();
 	
 	if(captureRecord) 
@@ -558,6 +613,7 @@ void saveCapture(int type) {
 				f.println("#RSSI:" + String(captureRSSIInterval) + " mSec");
 			} else if(type == CAPTURETYPE_DATA){
 				f.println("#DATA:");
+				f.println("#Pulsewidths:" + pulseWidthsString);
 			}
 			f.println("#StartTime:" + String(captureStartTime));
 			f.println("#EndTime:" + String(m));
@@ -566,11 +622,17 @@ void saveCapture(int type) {
 		while(i < captureCounter) {
 			f.print(String(captureRecord) + ",");
 			if(type == CAPTURETYPE_DATA) {
-				if(captureBuffer[i] < 0)
+				v = captureBuffer[i];
+				if(v < 0)
 					f.print("1,");
 				else
 					f.print("0,");
-				f.println(String(abs(captureBuffer[i])));
+				v = v & 0x7fff;
+				if(v == 0)
+					v = 524287;
+				else if(v > 16383)
+					 v = (v & 0x3fff) << 5;
+				f.println(String(v) + "," + String(getPulseWidth(v)));
 			} else {
 				f.println(String((float)(captureBuffer[i])/100));
 			}
@@ -828,7 +890,8 @@ void handleSaveConfig() {
 
 //send response to status request
 void handleStatus() {
-	String status = "adcValue:" + String(adcValue) + "<BR>";
+	String status = "<head><link rel='shortcut icon' href='about:blank'></head>";
+	status += "<body>adcValue:" + String(adcValue) + "<BR>";
 	status += "adcRaw:" + String(adcRaw) + "<BR>";
 	status += "rssi:" + String((float)rssi / 100) + "<BR>";
 	status += "captureFileCount:" + String(captureFileCount) + "<BR>";
@@ -836,7 +899,18 @@ void handleStatus() {
 	status += "buttonTime:" + String(buttonTime) + "<BR>";
 	status += "captureState:" + String(captureState) + "<BR>";
 	status += "captureCounter:" + String(captureCounter) + "<BR>";
+	status += "FreeHeap:" + String(ESP.getFreeHeap()) + "<BR></body>";
 	server.send(200, "text/html", status);
+}
+
+void handleDisconnect() {
+	if(ALLOW_DISCONNECT) {
+		server.send(200, "text/html", "handleDisconnect");
+		WiFi.disconnect();
+		startPowerDown();
+	} else {
+		server.send(200, "text/html", "handleDisconnect ignored");
+	}
 }
 
 void setup() {
@@ -852,7 +926,12 @@ void setup() {
 	Serial.println(F("Set up filing system"));
 	initFS();
 	getConfig();
-	wifiConnect(0);
+	updateDisplay("RF433 Analyser", "Connecting","Up to " + String(WM_TIMEOUT) +"s");
+	if(wifiConnect(0)) {
+		updateDisplay("RF433 Analyser", WiFi.localIP().toString(),"");
+	} else {
+		updateDisplay("RF433 Analyser", "No network","local mode");
+	}
 	//Update service
 	Serial.println("Set up Web update service");
 	MDNS.begin(host.c_str());
@@ -879,6 +958,7 @@ void setup() {
 	server.on("/saveconfig", handleSaveConfig);
 	server.on("/capture", handleCapture);
 	server.on("/getcapturefiles", handleGetCaptureFiles);
+	server.on("/disconnect", handleDisconnect);
 	//called when the url is not defined here use it to load content from SPIFFS
 	server.onNotFound([](){if(!handleFileRead(server.uri())) server.send(404, "text/plain", "FileNotFound");});
 	server.begin();
@@ -886,7 +966,6 @@ void setup() {
 	captureState = CAPTURESTATE_STARTUP;
 	attachInterrupt(GPIO_BUTTON, buttonInterrupt, CHANGE);
 	Serial.println(F("Set up complete"));
-	updateDisplay("RF433 Analyser", WiFi.localIP().toString(),"");
 }
 
 void loop() {
@@ -895,5 +974,4 @@ void loop() {
 	server.handleClient();
 	delay(timeInterval);
 	elapsedTime++;
-	wifiConnect(1);
 }

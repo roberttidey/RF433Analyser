@@ -159,7 +159,7 @@ $(function(){
 		$.get("http://" + host + "/status",  function(data) {
 			if(data != lastStatus) {
 				lastStatus = data;
-				var lines = data.split("<BR>");
+				var lines = data.replace(/^.*?<body>(.*?)<\/body>.*?$/s,"$1").split("<BR>");
 				var status_html = '<table><thead><tr>';
 				var i;
 				var statusFields = [];
