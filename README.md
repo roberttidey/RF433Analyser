@@ -6,6 +6,13 @@ Uses a RX6 433MHz receiver (modified)
 
 Construction details at https://www.instructables.com/id/RF433Analyser
 
+It makes use of the BaseSupport library at
+
+https://github.com/roberttidey/BaseSupport
+
+Edit the WifiManager and update passwords in BaseConfig.h
+Uncomment FASTCONNECT in BaseConfig.h as required
+
 ## Features
 - Monitors signal strength of 433MHz transmissions
 - Allows range of transmissions to be assessed
